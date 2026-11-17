@@ -259,3 +259,121 @@ curl -i localhost:3000/api/users -H "Authorization: Bearer $TOKEN"   # → 403
    En la siguiente request. El JWT solo guarda el id del usuario, y `authenticate` lee el rol y
    los permisos actuales de la base en cada request. Si los permisos estuvieran dentro del token,
    el usuario conservaría los viejos hasta que el token venciera (8 h).
+
+---
+
+## Etapa 3 — Libro (recurso principal) y suscripciones
+
+### Qué se hizo
+
+La gestión completa del Libro (RF3): listar, ver detalle, crear, editar, cambiar estado y
+eliminar, cada acción con su permiso. Y las suscripciones (RF4): un usuario se suscribe o
+desuscribe de un libro, y eso queda guardado en la base. Todavía **no** se envían
+notificaciones: eso es la etapa 4, que se engancha en `LibroService.changeStatus()`.
+
+### El Libro
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `id` | entero | identificador |
+| `title` | texto (200) | título |
+| `author` | texto (200) | **agregado** (la consigna permite sumar atributos) |
+| `description` | texto | descripción |
+| `status` | ENUM | `DISPONIBLE`, `PRESTADO`, `EN_REPARACION`. Si no se indica, `DISPONIBLE` |
+| `createdAt` / `updatedAt` | fecha | los maneja Sequelize solo |
+
+**Regla de cambio de estado:** se puede pasar de cualquier estado a cualquier otro, **salvo al
+mismo** (`PRESTADO → PRESTADO` responde 400). La consigna no fija transiciones. Se rechaza el
+"cambio" al mismo estado porque no es un cambio, y en la etapa 4 generaría notificaciones falsas.
+
+### Archivos
+
+| Archivo | Para qué está |
+|---|---|
+| `src/types/libro.ts` | Estados (`LIBRO_STATUSES`), tipo `Libro`, datos de alta/edición y `LibroStatusChange` (libro + estado anterior). |
+| `src/types/subscription.ts` | `Subscription` y `UserSubscription` (con datos del libro). |
+| `src/models/Libro.ts` | Modelo. `status` es un `ENUM` de PostgreSQL: la base rechaza estados inválidos. |
+| `src/models/Subscription.ts` | Modelo con **índice único (user_id, libro_id)**. |
+| `src/models/index.ts` | Relaciones Usuario 1─N Suscripción N─1 Libro, con `ON DELETE CASCADE`. |
+| `src/repositories/interfaces/ILibroRepository.ts`, `ISubscriptionRepository.ts` | Contratos. |
+| `src/repositories/LibroRepository.ts`, `SubscriptionRepository.ts` | Implementación con Sequelize. |
+| `src/services/LibroService.ts` | Lógica del recurso. `changeStatus` devuelve el estado anterior. |
+| `src/services/SubscriptionService.ts` | Suscribir, desuscribir y listar las mías. |
+| `src/controllers/LibroController.ts`, `SubscriptionController.ts` | Validación de entrada y respuesta. |
+| `src/routes/libro.routes.ts`, `subscription.routes.ts` | URLs con su permiso. |
+| `src/database/seed.ts` | 4 libros de ejemplo (solo si la tabla está vacía). |
+| `src/main.ts` | Se conectan los nuevos repos, services y controllers. |
+
+### Endpoints de esta etapa
+
+| Método | Ruta | Permiso | Respuesta |
+|---|---|---|---|
+| GET | `/api/libros` | `libro:read` | 200 lista |
+| GET | `/api/libros/:id` | `libro:read` | 200 / 404 |
+| POST | `/api/libros` | `libro:create` | 201 |
+| PUT | `/api/libros/:id` | `libro:update` | 200 (título, autor, descripción; **no** estado) |
+| PATCH | `/api/libros/:id/status` | `libro:change-status` | 200 `{ libro, previousStatus }` |
+| DELETE | `/api/libros/:id` | `libro:delete` | 204 |
+| POST | `/api/libros/:id/subscription` | `subscription:create` | 201 / 409 si ya estaba |
+| DELETE | `/api/libros/:id/subscription` | `subscription:delete` | 204 / 404 si no estaba |
+| GET | `/api/subscriptions` | `libro:read` | 200, mis suscripciones |
+
+### Principios y decisiones
+
+- **D — Inversión de dependencias, otra vez.** `SubscriptionService` recibe **dos** repositorios
+  por interfaz (`ISubscriptionRepository` e `ILibroRepository`): necesita el de libros para
+  verificar que el libro exista antes de suscribir. El de libros es el mismo objeto que usa
+  `LibroService`, y lo conecta `main.ts`.
+- **S — Responsabilidad única.** Editar (`PUT`) y cambiar estado (`PATCH /status`) son operaciones
+  separadas, con permisos separados (`libro:update` vs `libro:change-status`). Si se manda
+  `status` en el `PUT`, responde 400. Así existe **un solo camino** para cambiar el estado, y en
+  la etapa 4 ese camino es el que dispara las notificaciones.
+- **El usuario sale del token, nunca del body.** En `POST /libros/:id/subscription` no se manda
+  el `userId`: se toma de `req.user`. Así nadie puede suscribir a otro.
+- **Duplicados imposibles a nivel base.** El índice único `(user_id, libro_id)` garantiza que no
+  haya dos suscripciones iguales aunque lleguen dos requests a la vez. El repositorio usa
+  `findOrCreate` y el service lo traduce a 409.
+- **Borrado en cascada.** Al eliminar un libro se eliminan sus suscripciones (`ON DELETE CASCADE`),
+  así no quedan suscripciones a libros que no existen. Se probó.
+- **`GET /api/subscriptions` usa `libro:read`.** La tabla RF2 no tiene un permiso
+  `subscription:read`, y no quise inventar uno. Todos los roles tienen `libro:read`, y la ruta
+  solo devuelve las suscripciones **propias**.
+- **Suscripciones ≠ observers.** Una suscripción es un dato en la base ("Ana sigue a Rayuela").
+  El observer de la etapa 4 es un objeto del backend que, cuando cambia un estado, **consulta**
+  esas suscripciones para saber a quién avisar.
+
+### Cómo se probó
+
+| Prueba | Resultado |
+|---|---|
+| Listar libros sin token / como usuario | 401 / 200 (4 libros del seed) |
+| Detalle libro 1 / 999 / `abc` | 200 / 404 / 400 |
+| Crear como usuario / como operador sin estado | 403 / 201 con `DISPONIBLE` |
+| Crear con estado `PERDIDO` / sin autor | 400 / 400 |
+| Editar como usuario / como operador / mandando `status` en el PUT | 403 / 200 / 400 |
+| Cambiar estado como usuario / `DISPONIBLE → PRESTADO` como operador | 403 / 200 con `previousStatus` |
+| Cambiar al mismo estado / a `ROTO` | 400 / 400 |
+| Suscribirse / repetir / libro 999 | 201 / 409 / 404 |
+| Mis suscripciones | lista con título y estado del libro |
+| Desuscribirse / repetir | 204 / 404 |
+| Borrar libro como operador / como admin / repetir | 403 / 204 / 404 |
+| Suscripciones del libro borrado | eliminadas en cascada (tabla vacía) |
+| `down -v` + `up` (base vacía) | 6 tablas creadas, seed con 4 libros |
+
+### Preguntas posibles de la cátedra
+
+1. **¿Por qué cambiar el estado tiene un endpoint propio en vez de editarse en el PUT?**
+   Porque tiene un permiso distinto (`libro:change-status`) y porque es el evento que dispara las
+   notificaciones. Con un único camino (`LibroService.changeStatus`), es imposible cambiar el
+   estado sin que se notifique a los suscriptores.
+
+2. **¿Qué diferencia hay entre una suscripción y un observer?**
+   La suscripción es un dato persistido en la tabla `subscriptions` que dice qué usuario sigue
+   qué libro. El observer es un objeto del backend (`NotificationService`) registrado en el
+   `EventPublisher`: cuando un libro cambia de estado, el observer reacciona y consulta las
+   suscripciones para saber a quién notificar.
+
+3. **¿Cómo evitás que un usuario se suscriba dos veces al mismo libro?**
+   En dos niveles. La base tiene un índice único sobre `(user_id, libro_id)`, que lo hace
+   imposible aunque lleguen dos requests a la vez. Y el repositorio usa `findOrCreate`: si la
+   suscripción ya existía, devuelve `null` y el service responde 409 "Ya estás suscripto".

@@ -4,14 +4,22 @@ import { runSeed } from './database/seed';
 import { initModels } from './models';
 import { UserRepository } from './repositories/UserRepository';
 import { RoleRepository } from './repositories/RoleRepository';
+import { LibroRepository } from './repositories/LibroRepository';
+import { SubscriptionRepository } from './repositories/SubscriptionRepository';
 import { JwtTokenService } from './services/TokenService';
 import { AuthService } from './services/AuthService';
 import { UserService } from './services/UserService';
+import { LibroService } from './services/LibroService';
+import { SubscriptionService } from './services/SubscriptionService';
 import { AuthController } from './controllers/AuthController';
 import { UserController } from './controllers/UserController';
+import { LibroController } from './controllers/LibroController';
+import { SubscriptionController } from './controllers/SubscriptionController';
 import { createAuthenticate } from './middlewares/authenticate';
 import { createAuthRoutes } from './routes/auth.routes';
 import { createUserRoutes } from './routes/user.routes';
+import { createLibroRoutes } from './routes/libro.routes';
+import { createSubscriptionRoutes } from './routes/subscription.routes';
 import { createApp } from './app';
 
 /**
@@ -32,15 +40,21 @@ async function main(): Promise<void> {
   // 2. Repositorios (implementaciones concretas de las interfaces).
   const userRepository = new UserRepository();
   const roleRepository = new RoleRepository();
+  const libroRepository = new LibroRepository();
+  const subscriptionRepository = new SubscriptionRepository();
 
   // 3. Services: reciben las dependencias tipadas como INTERFACES.
   const tokenService = new JwtTokenService(config.jwtSecret);
   const authService = new AuthService(userRepository, roleRepository, tokenService);
   const userService = new UserService(userRepository, roleRepository);
+  const libroService = new LibroService(libroRepository);
+  const subscriptionService = new SubscriptionService(subscriptionRepository, libroRepository);
 
   // 4. Controllers y middlewares.
   const authController = new AuthController(authService);
   const userController = new UserController(userService);
+  const libroController = new LibroController(libroService);
+  const subscriptionController = new SubscriptionController(subscriptionService);
   const authenticate = createAuthenticate(tokenService, authService);
 
   // 5. Rutas y aplicación.
@@ -49,6 +63,8 @@ async function main(): Promise<void> {
     routes: [
       { path: '/api/auth', router: createAuthRoutes(authController, authenticate) },
       { path: '/api', router: createUserRoutes(userController, authenticate) },
+      { path: '/api', router: createSubscriptionRoutes(subscriptionController, authenticate) },
+      { path: '/api/libros', router: createLibroRoutes(libroController, authenticate) },
     ],
   });
 
