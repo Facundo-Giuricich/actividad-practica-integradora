@@ -34,5 +34,18 @@ services:
       db:
         condition: service_healthy
 
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Vite incrusta la URL de la API en el JS al compilar: por eso es un build arg.
+        # Es la URL que usa el NAVEGADOR, así que apunta a localhost, no a "backend".
+        VITE_API_URL: ${VITE_API_URL}
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
 volumes:
   db_data:

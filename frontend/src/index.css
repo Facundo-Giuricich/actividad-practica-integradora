@@ -1,0 +1,369 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1d2330;
+  --muted: #667085;
+  --border: #dde1e7;
+  --primary: #2f5bd3;
+  --primary-text: #ffffff;
+  --danger: #c43c3c;
+  --success-bg: #e7f6ec;
+  --success-text: #1d6b3a;
+  --error-bg: #fdecec;
+  --error-text: #a12d2d;
+  --unread: #eef3ff;
+
+  --st-disponible-bg: #e3f5e9;
+  --st-disponible: #1d6b3a;
+  --st-prestado-bg: #fff1dc;
+  --st-prestado: #8a5300;
+  --st-reparacion-bg: #f1e9fb;
+  --st-reparacion: #5b3a8c;
+
+  color-scheme: light;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --surface: #1d2128;
+    --text: #e6e8eb;
+    --muted: #9aa3af;
+    --border: #2e343d;
+    --primary: #6b8ff0;
+    --primary-text: #0d1117;
+    --danger: #e06c6c;
+    --success-bg: #173322;
+    --success-text: #8fd9a8;
+    --error-bg: #3a1c1c;
+    --error-text: #f2a3a3;
+    --unread: #1c2640;
+
+    --st-disponible-bg: #173322;
+    --st-disponible: #8fd9a8;
+    --st-prestado-bg: #3a2a10;
+    --st-prestado: #f0c27a;
+    --st-reparacion-bg: #2c2140;
+    --st-reparacion: #c9b0ef;
+
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+a {
+  color: var(--primary);
+}
+
+h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.5rem;
+}
+
+code {
+  font-size: 0.9em;
+}
+
+/* ---------- Layout ---------- */
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.navbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.navbar-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.navbar a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.navbar a.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.brand {
+  font-weight: 700;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.who {
+  color: var(--muted);
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+}
+
+.card.narrow {
+  max-width: 420px;
+  margin: 2rem auto;
+}
+
+.card.narrow-wide {
+  max-width: 640px;
+}
+
+.center {
+  text-align: center;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.description {
+  white-space: pre-wrap;
+}
+
+/* ---------- Formularios y botones ---------- */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 500;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+button,
+.button {
+  font: inherit;
+  display: inline-block;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  background: var(--primary);
+  color: var(--primary-text);
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+button.secondary,
+.button.secondary {
+  background: transparent;
+  color: var(--primary);
+}
+
+button.danger {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--primary);
+  padding: 0;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.status-change {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+/* ---------- Mensajes ---------- */
+.error,
+.success {
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+}
+
+.error {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.success {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+/* ---------- Tabla ---------- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.table th {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---------- Etiquetas ---------- */
+.status,
+.tag,
+.role {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-disponible {
+  background: var(--st-disponible-bg);
+  color: var(--st-disponible);
+}
+
+.status-prestado {
+  background: var(--st-prestado-bg);
+  color: var(--st-prestado);
+}
+
+.status-en_reparacion {
+  background: var(--st-reparacion-bg);
+  color: var(--st-reparacion);
+}
+
+.tag,
+.role {
+  background: var(--unread);
+  color: var(--primary);
+}
+
+.bell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.badge-count {
+  min-width: 1.4rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* ---------- Bandeja ---------- */
+.inbox {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.inbox li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.inbox li.unread {
+  background: var(--unread);
+  border-left: 4px solid var(--primary);
+}
+
+.inbox li p {
+  margin: 0;
+}
