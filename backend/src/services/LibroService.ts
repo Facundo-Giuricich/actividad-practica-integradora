@@ -1,10 +1,17 @@
 import { AppError } from '../errors/AppError';
+import type { ISubject } from '../observer/ISubject';
 import type { ILibroRepository } from '../repositories/interfaces/ILibroRepository';
+import type { LibroStatusChangedEvent } from '../types/events';
 import type { Libro, LibroStatus, LibroStatusChange, LibroUpdateData, NewLibroData } from '../types/libro';
 
 /** Gestión del recurso principal (RF3). No conoce Express. */
 export class LibroService {
-  constructor(private readonly libros: ILibroRepository) {}
+  constructor(
+    private readonly libros: ILibroRepository,
+    // Subject del patrón Observer. LibroService no sabe quién escucha ni qué hace:
+    // solo avisa que el estado cambió.
+    private readonly events: ISubject<LibroStatusChangedEvent>,
+  ) {}
 
   list(): Promise<Libro[]> {
     return this.libros.findAll();
@@ -27,9 +34,9 @@ export class LibroService {
   }
 
   /**
-   * Cambia el estado del libro. Se permite pasar de cualquier estado a cualquier
-   * otro, salvo al mismo: eso no es un cambio y no debe notificar a nadie.
-   * (En la etapa 4 este método avisa al EventPublisher — patrón Observer.)
+   * Cambia el estado del libro y publica el evento (patrón Observer).
+   * Se permite pasar de cualquier estado a cualquier otro, salvo al mismo:
+   * eso no es un cambio y no debe notificar a nadie.
    */
   async changeStatus(id: number, newStatus: LibroStatus): Promise<LibroStatusChange> {
     const current = await this.getById(id);
@@ -39,6 +46,15 @@ export class LibroService {
 
     const libro = await this.libros.updateStatus(id, newStatus);
     if (!libro) throw notFound(id);
+
+    await this.events.notify({
+      libroId: libro.id,
+      libroTitle: libro.title,
+      previousStatus: current.status,
+      newStatus: libro.status,
+      changedAt: libro.updatedAt,
+    });
+
     return { libro, previousStatus: current.status };
   }
 

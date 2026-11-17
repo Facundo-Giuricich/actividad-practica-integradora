@@ -8,6 +8,12 @@ export interface Subscription {
   createdAt: Date;
 }
 
+/** A quién hay que notificar cuando cambia un libro. */
+export interface Subscriber {
+  userId: number;
+  email: string;
+}
+
 /** Una suscripción del usuario logueado, con los datos básicos del libro. */
 export interface UserSubscription {
   libroId: number;

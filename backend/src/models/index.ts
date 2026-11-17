@@ -1,5 +1,6 @@
 import type { Sequelize } from 'sequelize';
 import { LibroModel, initLibroModel } from './Libro';
+import { NotificationModel, initNotificationModel } from './Notification';
 import { PermissionModel, initPermissionModel } from './Permission';
 import { RoleModel, initRoleModel } from './Role';
 import { SubscriptionModel, initSubscriptionModel } from './Subscription';
@@ -15,6 +16,7 @@ export function initModels(sequelize: Sequelize): void {
   initUserModel(sequelize);
   initLibroModel(sequelize);
   initSubscriptionModel(sequelize);
+  initNotificationModel(sequelize);
 
   // Rol N ── M Permiso, a través de la tabla intermedia role_permissions.
   RoleModel.belongsToMany(PermissionModel, {
@@ -42,6 +44,13 @@ export function initModels(sequelize: Sequelize): void {
   SubscriptionModel.belongsTo(UserModel, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' });
   LibroModel.hasMany(SubscriptionModel, { foreignKey: 'libroId', as: 'subscriptions', onDelete: 'CASCADE' });
   SubscriptionModel.belongsTo(LibroModel, { foreignKey: 'libroId', as: 'libro', onDelete: 'CASCADE' });
+
+  // Usuario 1 ── N Notificación. Si se borra el usuario, se borra su bandeja.
+  UserModel.hasMany(NotificationModel, { foreignKey: 'userId', as: 'notifications', onDelete: 'CASCADE' });
+  NotificationModel.belongsTo(UserModel, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' });
+  // Libro 1 ── N Notificación. Si se borra el libro, la notificación queda (libro_id = NULL).
+  LibroModel.hasMany(NotificationModel, { foreignKey: 'libroId', as: 'notifications', onDelete: 'SET NULL' });
+  NotificationModel.belongsTo(LibroModel, { foreignKey: 'libroId', as: 'libro', onDelete: 'SET NULL' });
 }
 
-export { LibroModel, PermissionModel, RoleModel, SubscriptionModel, UserModel };
+export { LibroModel, NotificationModel, PermissionModel, RoleModel, SubscriptionModel, UserModel };

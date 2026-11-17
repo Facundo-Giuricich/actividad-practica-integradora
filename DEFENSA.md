@@ -377,3 +377,175 @@ mismo** (`PRESTADO → PRESTADO` responde 400). La consigna no fija transiciones
    En dos niveles. La base tiene un índice único sobre `(user_id, libro_id)`, que lo hace
    imposible aunque lleguen dos requests a la vez. Y el repositorio usa `findOrCreate`: si la
    suscripción ya existía, devuelve `null` y el service responde 409 "Ya estás suscripto".
+
+---
+
+## Etapa 4 — Notificaciones: Observer, Factory y Adapter
+
+### Qué se hizo
+
+Cuando un libro cambia de estado, cada usuario suscripto recibe una notificación por **dos
+canales** (RF5): **in-app** (se guarda en la base como no leída) y **consola** (una línea en el
+log del backend). El usuario puede ver su bandeja, el contador de no leídas y marcarlas como
+leídas. Los cuatro patrones participan del **mismo flujo**, tal como pide la sección 5.2.
+
+### El flujo completo (lo más importante para la defensa)
+
+```
+PATCH /api/libros/1/status  {"status":"PRESTADO"}
+ └─ LibroController.changeStatus
+     └─ LibroService.changeStatus()                       guarda el nuevo estado
+         └─ EventPublisher.notify(evento)                  ← OBSERVER (Subject)
+             └─ NotificationService.update(evento)         ← OBSERVER (Observer)
+                 ├─ SubscriptionRepository                 ¿quién sigue el libro 1?
+                 │    └─ modelos sobre DatabaseConnection  ← SINGLETON (una sola conexión)
+                 └─ por cada suscriptor, por cada canal:
+                      ├─ InAppNotifier.send()              guarda en "notifications"
+                      └─ ConsoleNotifierAdapter.send()     ← ADAPTER
+                           └─ console.log("[NOTIFICACIÓN] Para: ... | Libro #1 | Estado: ...")
+     (los dos canales los creó NotifierFactory.create('inapp' / 'console') ← FACTORY)
+```
+
+`LibroService` **no sabe** que existen las notificaciones: solo avisa "cambió el estado". Y
+`NotificationService` no sabe qué canales hay: solo conoce `INotifier`.
+
+### Archivos
+
+| Archivo | Patrón | Para qué está |
+|---|---|---|
+| `src/observer/ISubject.ts` | Observer | Interfaz del que avisa: `attach`, `detach`, `notify`. |
+| `src/observer/IObserver.ts` | Observer | Interfaz del que escucha: `update`. |
+| `src/observer/EventPublisher.ts` | Observer (Subject) | Implementación propia, **sin `EventEmitter`**. Guarda la lista de observers y los recorre en `notify`. |
+| `src/services/NotificationService.ts` | Observer (Observer) | `update(evento)`: busca suscriptores y envía por cada canal. También la bandeja. |
+| `src/notifications/INotifier.ts` | Factory / Adapter | Contrato de todo canal: `send(notification): Promise<void>`. |
+| `src/notifications/InAppNotifier.ts` | — | Canal in-app: guarda en la base. |
+| `src/notifications/ConsoleNotifierAdapter.ts` | **Adapter** | Adapta `INotifier` a `console.log`. |
+| `src/notifications/NotifierFactory.ts` | **Factory** | `create('inapp' \| 'console')` → `INotifier`. Único lugar con `new` de canales. |
+| `src/types/events.ts` | — | `LibroStatusChangedEvent`: lo que viaja del Subject al Observer. |
+| `src/types/notification.ts` | — | `Notification` (lo que reciben los canales) e `InboxNotification` (la bandeja). |
+| `src/models/Notification.ts` | — | Tabla `notifications`, con `read` (leída / no leída). |
+| `src/repositories/interfaces/INotificationRepository.ts` | ISP | `INotificationWriter` (solo `create`) + `INotificationRepository` (bandeja). |
+| `src/repositories/interfaces/ISubscriptionRepository.ts` | ISP | Se agregó `ISubscriberLookup` (solo `findSubscribersByLibro`). |
+| `src/repositories/NotificationRepository.ts`, `SubscriptionRepository.ts` | — | Implementaciones. |
+| `src/services/LibroService.ts` | Observer | Recibe `ISubject` por constructor y llama a `notify` en `changeStatus`. |
+| `src/controllers/NotificationController.ts`, `src/routes/notification.routes.ts` | — | Endpoints de la bandeja. |
+| `src/main.ts` | — | Crea la Factory, el Publisher y el NotificationService, y hace `attach`. |
+
+### Cada patrón, en criollo
+
+**Observer.** *Problema:* cuando cambia un estado tienen que pasar cosas (notificar), pero no
+queremos que `LibroService` las conozca ni dependa de ellas. *Solución:* `LibroService` le avisa
+a un Subject (`EventPublisher`), que reenvía el evento a todos los observers registrados. Para
+agregar otra reacción (por ejemplo, un log de auditoría) se escribe otro observer y se hace
+`attach` en `main.ts`. `LibroService` no se toca.
+
+```ts
+// main.ts
+const libroEvents = new EventPublisher<LibroStatusChangedEvent>();
+libroEvents.attach(notificationService);
+const libroService = new LibroService(libroRepository, libroEvents);
+```
+
+**Factory.** *Problema:* cada canal se construye distinto (`InAppNotifier` necesita el
+repositorio y la consola no), y no queremos que `NotificationService` conozca esas clases.
+*Solución:* `NotifierFactory.create(canal)` concentra los `new` y devuelve un `INotifier`.
+`NotificationService` pide los canales por nombre.
+
+**Adapter.** *Problema:* la app espera `send(objeto): Promise`, pero `console.log` recibe texto
+y no devuelve nada. Son interfaces incompatibles. *Solución:* `ConsoleNotifierAdapter`
+implementa `INotifier` hacia afuera y por dentro convierte el objeto en texto y llama a
+`console.log`.
+
+```ts
+send(notification: Notification): Promise<void> {
+  const line = `[NOTIFICACIÓN] Para: ${notification.recipientEmail} | Libro #${notification.libroId}` +
+               ` | Estado: ${notification.previousStatus} → ${notification.newStatus}`;
+  console.log(line);          // el "adaptado"
+  return Promise.resolve();   // cumple el contrato de INotifier
+}
+```
+
+**Singleton.** No es nuevo, pero participa del flujo: los repositorios que consultan
+suscriptores y guardan notificaciones usan modelos registrados sobre la **única** instancia de
+Sequelize de `DatabaseConnection.getInstance()`.
+
+### SOLID en esta etapa
+
+- **O — Abierto/cerrado.** Para agregar un canal nuevo (por ejemplo, email): (1) crear
+  `EmailNotifier implements INotifier`, (2) agregar `'email'` a `NOTIFIER_CHANNELS` y su `case` en
+  la Factory, (3) agregarlo a `NOTIFICATION_CHANNELS` en `main.ts`. **`NotificationService` no se
+  modifica.** (La Factory sí cambia: es el único lugar que conoce las clases concretas.)
+- **L — Sustitución de Liskov.** `InAppNotifier` y `ConsoleNotifierAdapter` son
+  intercambiables: `NotificationService` recorre una lista de `INotifier` y llama a `send` sin
+  saber cuál es cuál.
+- **I — Segregación de interfaces.** `NotificationService` depende de `ISubscriberLookup` (un
+  solo método), no del repositorio de suscripciones entero. `InAppNotifier` depende de
+  `INotificationWriter` (solo `create`): no puede leer ni marcar bandejas.
+- **D — Inversión de dependencias.** `LibroService` depende de `ISubject`, no de
+  `EventPublisher`. `NotificationService` depende de `INotifier` y de interfaces de repositorio.
+
+### Decisiones que conviene saber explicar
+
+- **Un observer que falla no rompe al resto.** `EventPublisher.notify` captura el error de cada
+  observer, lo registra y sigue. El estado del libro ya se guardó, así que un problema
+  notificando no debe deshacer el cambio ni dejar sin aviso a los demás observers. Se probó con
+  un observer que lanza error.
+- **`notify` se espera (`await`).** Cuando la API responde al `PATCH`, las notificaciones ya
+  están guardadas. Es simple y predecible para una app de este tamaño.
+- **Las notificaciones sobreviven al libro.** Si se borra el libro, `libro_id` queda en `NULL`
+  (`ON DELETE SET NULL`) y el título se guardó como copia en `libro_title`. La bandeja sigue
+  siendo legible. Se probó.
+- **Cada uno solo ve y marca lo suyo.** `markAsRead` filtra por `id` **y** `userId`: si el admin
+  intenta marcar una notificación de otro usuario, recibe 404 (ni siquiera se entera de que
+  existe).
+- **El mensaje de consola sigue el formato de la consigna:**
+  `[NOTIFICACIÓN] Para: usuario@tp.com | Libro #1 | Estado: DISPONIBLE → PRESTADO`.
+
+### Endpoints de esta etapa (todos con `notification:read`)
+
+| Método | Ruta | Respuesta |
+|---|---|---|
+| GET | `/api/notifications` | mi bandeja, de la más nueva a la más vieja |
+| GET | `/api/notifications/unread-count` | `{ "count": n }` (el frontend lo consulta por polling) |
+| PATCH | `/api/notifications/:id/read` | 204 / 404 si no es mía |
+| PATCH | `/api/notifications/read-all` | `{ "updated": n }` |
+
+### Cómo se probó
+
+Con la base desde cero (`down -v` + `up --build`):
+
+| Prueba | Resultado |
+|---|---|
+| Usuario y admin se suscriben a "Ficciones"; operador cambia DISPONIBLE→PRESTADO→EN_REPARACION | 4 líneas `[NOTIFICACIÓN]` en `docker compose logs backend` (2 cambios × 2 suscriptores) |
+| Bandeja del usuario | 2 notificaciones no leídas, la más nueva primero; contador = 2 |
+| Cambio de estado de un libro sin suscriptores | ninguna notificación |
+| Cambio al mismo estado | 400, ninguna notificación |
+| Operador (no suscripto) | bandeja vacía |
+| Marcar una como leída / todas | contador 2 → 1 → 0 |
+| Admin marca una notificación del usuario | 404 |
+| Usuario se desuscribe y el estado vuelve a cambiar | el usuario no recibe nada; el admin sí |
+| Se borra el libro | las notificaciones quedan con `libroId: null` y el título |
+| `EventPublisher` con un observer que lanza error | los demás observers reciben el evento igual; `detach` funciona; `attach` repetido no duplica |
+
+### Preguntas posibles de la cátedra
+
+1. **Agregá un canal de notificación por email (modificación en vivo). ¿Qué tocás?**
+   Creo `src/notifications/EmailNotifier.ts` con `implements INotifier` y su `send()`. Agrego
+   `'email'` a `NOTIFIER_CHANNELS` y un `case 'email': return new EmailNotifier();` en
+   `NotifierFactory`. Por último, sumo `'email'` a `NOTIFICATION_CHANNELS` en `main.ts`.
+   `NotificationService` y `LibroService` no se tocan: eso es abierto/cerrado. Si me olvido del
+   `case`, el `never` del `default` hace que no compile.
+
+2. **¿Cuál es el "adaptado" en tu Adapter y por qué hace falta?**
+   El adaptado es `console.log`: recibe texto y no devuelve nada. La aplicación espera un
+   `INotifier`, que recibe un objeto `Notification` y devuelve una promesa.
+   `ConsoleNotifierAdapter` traduce entre las dos formas: arma el texto a partir del objeto,
+   llama a `console.log` y devuelve una promesa resuelta. Así `NotificationService` trata a la
+   consola igual que a cualquier otro canal.
+
+3. **¿Por qué `LibroService` recibe un `ISubject` en vez de llamar directo a
+   `NotificationService`?**
+   Para que no estén acoplados. `LibroService` solo avisa que el estado cambió y no sabe quién
+   escucha. Si mañana se agrega otra reacción (auditoría, estadísticas), se registra otro
+   observer con `attach` en `main.ts` sin modificar `LibroService`. Además depende de una
+   interfaz (`ISubject`), no de la clase concreta.
