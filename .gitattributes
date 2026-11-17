@@ -1,0 +1,2 @@
+# Fuerza saltos de línea LF: los archivos se ejecutan dentro de contenedores Linux.
+* text=auto eol=lf

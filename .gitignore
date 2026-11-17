@@ -1,0 +1,11 @@
+# Dependencias y builds (cada proyecto tiene los suyos)
+node_modules/
+dist/
+
+# Variables de entorno reales: NUNCA se versionan (solo .env.example)
+.env
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+*.log
