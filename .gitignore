@@ -5,6 +5,9 @@ dist/
 # Variables de entorno reales: NUNCA se versionan (solo .env.example)
 .env
 
+# Documentos sueltos (consigna u otros PDF)
+*.pdf
+
 # Sistema / editor
 .DS_Store
 Thumbs.db
