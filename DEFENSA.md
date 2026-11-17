@@ -549,3 +549,121 @@ Con la base desde cero (`down -v` + `up --build`):
    escucha. Si mañana se agrega otra reacción (auditoría, estadísticas), se registra otro
    observer con `attach` en `main.ts` sin modificar `LibroService`. Además depende de una
    interfaz (`ISubject`), no de la clase concreta.
+
+---
+
+## Etapa 5 — Frontend, Docker completo y documentación
+
+### Qué se hizo
+
+La interfaz en React (Vite) con control de acceso por permisos, la bandeja de notificaciones con
+contador por polling, el frontend dentro de Docker Compose, el `README.md` con la plantilla del
+Anexo A y el `PATTERNS.md`.
+
+### Cómo está organizado el frontend
+
+```
+frontend/src/
+├── main.tsx                 arranca React: BrowserRouter + AuthProvider + App
+├── App.tsx                  rutas; cada ruta protegida declara su permiso
+├── api/
+│   ├── client.ts            fetch nativo + header Authorization + manejo de errores y 401
+│   ├── auth.api.ts          login, register, me
+│   ├── libros.api.ts        CRUD de libros, cambio de estado y suscripciones
+│   ├── notifications.api.ts bandeja, contador y marcar como leída
+│   └── users.api.ts         panel de administración
+├── context/AuthContext.tsx  usuario logueado + permisos + login/logout/hasPermission
+├── components/
+│   ├── ProtectedRoute.tsx   sin sesión → /login; sin permiso → "Acceso denegado"
+│   ├── Can.tsx              muestra sus hijos solo si hay permiso
+│   ├── Navbar.tsx
+│   ├── NotificationBell.tsx contador de no leídas (polling cada 5 s)
+│   └── StatusBadge.tsx
+├── pages/                   Login, Register, LibroList, LibroDetail, LibroForm,
+│                            Notifications, AdminUsers
+├── types/index.ts           tipos de la API
+└── utils/format.ts          etiquetas de estado, fechas y mensajes de error
+```
+
+### Decisiones que conviene saber explicar
+
+- **El frontend no protege nada: solo muestra u oculta.** `<Can permission="libro:delete">`
+  oculta el botón Eliminar a quien no tiene el permiso, pero si alguien lo fuerza (o usa curl),
+  el backend responde 403. Los permisos que usa el frontend vienen del backend (login o
+  `/auth/me`), así que no hay una segunda lista de permisos que se pueda desincronizar.
+- **`api/client.ts` centraliza fetch.** Todas las llamadas pasan por ahí: agrega el token y
+  convierte `{ "error": "..." }` en un `ApiError` con el mensaje del backend, que se muestra tal
+  cual en pantalla. Si la API responde 401 con un token guardado (sesión vencida), cierra la
+  sesión.
+- **El token se guarda en `localStorage`** para que la sesión sobreviva a un F5. Al abrir la app,
+  `AuthContext` llama a `/auth/me` para recuperar el usuario y sus permisos actuales.
+- **Contador por polling.** `NotificationBell` consulta `/notifications/unread-count` cada 5
+  segundos (la consigna lo acepta; no se pide WebSocket). Cuando el usuario marca algo como
+  leído, se dispara un evento del navegador para que el contador se actualice sin esperar.
+- **Sin `any`.** El body de las respuestas se lee como `unknown`. El único cast (`data as T` en
+  `client.ts`) está comentado: se confía en el contrato de la API.
+- **`VITE_API_URL` se resuelve al compilar.** Vite reemplaza `import.meta.env.VITE_API_URL` por
+  el valor real en el JS. Por eso en Docker llega como **build arg**, y apunta a `localhost`: la
+  usa el navegador del usuario, no el contenedor. En desarrollo, `vite.config.ts` lee el `.env` de
+  la raíz (`envDir: '..'`), así hay un solo `.env` para todo el proyecto.
+- **Dos proyectos independientes.** `backend/` y `frontend/` tienen cada uno su `package.json`,
+  `tsconfig.json` (con `"strict": true`), `node_modules`, `Dockerfile` y `.dockerignore`. En la
+  raíz no hay `package.json` (no es monorepo).
+- **El Dockerfile del frontend usa `npm install` en vez de `npm ci`.** El `package-lock.json` se
+  genera en Windows y npm omite dependencias opcionales de Linux que necesita Vite 8 (bug conocido
+  de npm). `npm install` respeta las versiones del lockfile y completa las que faltan. El
+  frontend se sirve con `vite preview`, que ya viene con Vite, sin agregar otra herramienta.
+
+### Docker Compose final
+
+| Servicio | Imagen / build | Puerto host | Detalle |
+|---|---|---|---|
+| `db` | `postgres:16-alpine` | `5433` (`DB_HOST_PORT`) | volumen `db_data`, healthcheck `pg_isready` |
+| `backend` | `./backend/Dockerfile` | `API_PORT` (3000) | `depends_on: db: condition: service_healthy`; crea tablas y corre el seed |
+| `frontend` | `./frontend/Dockerfile` | `5173` | build arg `VITE_API_URL`; sirve el build con `vite preview` |
+
+### Cómo se probó
+
+**En un navegador real** (Edge headless manejado por script, base desde cero), 24 de 24
+verificaciones OK:
+
+| Rol | Qué se verificó |
+|---|---|
+| Sin sesión | `/libros` redirige a `/login`; con contraseña mala se ve el error del backend |
+| usuario | No ve "Nuevo libro", "Usuarios", "Editar", "Eliminar" ni "Cambiar estado". Se suscribe y el botón pasa a "Desuscribirse". |
+| usuario + operador | El operador (otra sesión) cambia el estado: al usuario la campanita le muestra `1` **sin recargar**; la bandeja muestra "DISPONIBLE → PRESTADO"; al marcar como leída el contador desaparece. |
+| usuario | `/admin/usuarios` muestra "Acceso denegado" |
+| operador | Ve "Nuevo libro", "Editar" y "Cambiar estado", pero **no** "Eliminar". Cambia el estado desde la UI y crea un libro. |
+| admin | Ve la lista de usuarios, no tiene selector en su propia fila, asigna el rol operador a otro usuario y ve "Eliminar". |
+| registro | Una cuenta nueva entra con rol `usuario` |
+
+**Ejecución sin Docker:** backend con `tsx` contra la base del Compose (`/api/health` → 200) y
+frontend con `vite` (toma `VITE_API_URL` del `.env` de la raíz).
+
+**Criterio de aceptación de la cátedra:** se hizo `git clone` del repositorio en una carpeta
+nueva, después `cp .env.example .env` y `docker compose up --build`. Lo único que se cambió fue
+`API_PORT`/`VITE_API_URL`, porque en la máquina de prueba el 3000 estaba ocupado; el README
+explica cómo hacerlo. Resultado:
+- el clon no trae `.env` ni `package.json` en la raíz;
+- `db` quedó *healthy* y recién ahí arrancó el backend, que creó las tablas y ejecutó el seed;
+- el frontend sirvió la app;
+- la prueba en el navegador dio **24/24 OK**, y la consola del backend mostró
+  `[NOTIFICACIÓN] Para: usuario@tp.com | Libro #3 | Estado: DISPONIBLE → PRESTADO`.
+
+### Preguntas posibles de la cátedra
+
+1. **Si oculto el botón Eliminar con `<Can>`, ¿un usuario puede igual borrar un libro?**
+   No. `<Can>` es solo visual. La protección real está en el backend: la ruta
+   `DELETE /api/libros/:id` tiene `authorize('libro:delete')`, que responde 403 si el rol no
+   tiene ese permiso, aunque la request venga de curl o de la consola del navegador.
+
+2. **¿Cómo se entera el frontend de una notificación nueva?**
+   Por polling: `NotificationBell` pide `/api/notifications/unread-count` cada 5 segundos y
+   actualiza el número. La consigna lo acepta y no exige tiempo real (WebSockets o SSE).
+
+3. **¿Por qué `VITE_API_URL` apunta a `localhost` y no a `backend`, si están en la misma red de
+   Docker?**
+   Porque esa URL la usa el **navegador** del usuario, que corre fuera de Docker y no conoce el
+   nombre `backend`. El nombre de servicio solo sirve entre contenedores (por eso el backend usa
+   `db` para llegar a la base). Además, Vite la incrusta al compilar, por eso se pasa como build
+   arg.
