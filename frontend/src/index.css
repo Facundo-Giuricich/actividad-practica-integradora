@@ -361,7 +361,7 @@ button:disabled {
 
 .inbox li.unread {
   background: var(--unread);
-  border-left: 4px solid var(--primary);
+  font-weight: 600;
 }
 
 .inbox li p {
