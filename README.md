@@ -27,8 +27,8 @@ registra una línea en la consola del backend. El acceso a cada acción depende 
 1. Clonar el repositorio:
 
    ```bash
-   git clone https://github.com/Facundo-Giuricich/<nombre-del-repo>.git
-   cd <nombre-del-repo>
+   git clone https://github.com/Facundo-Giuricich/actividad-practica-integradora.git
+   cd actividad-practica-integradora
    ```
 
 2. Crear el archivo de variables de entorno:
