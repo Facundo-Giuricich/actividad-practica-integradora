@@ -32,6 +32,7 @@ export interface DatabaseConfig {
 
 export interface AppConfig {
   apiPort: number;
+  jwtSecret: string;
   db: DatabaseConfig;
 }
 
@@ -41,6 +42,7 @@ export interface AppConfig {
  */
 export const config: AppConfig = {
   apiPort: requiredNumber('API_PORT'),
+  jwtSecret: required('JWT_SECRET'),
   db: {
     host: required('DB_HOST'),
     port: requiredNumber('DB_PORT'),

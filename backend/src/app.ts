@@ -1,13 +1,20 @@
-import express, { type Express } from 'express';
+import express, { type Express, type Router } from 'express';
 import cors from 'cors';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
 
+/** Un router ya armado y el prefijo donde se monta (ej. /api/auth). */
+export interface RouteMount {
+  path: string;
+  router: Router;
+}
+
 /**
- * Lo que app.ts necesita recibir desde afuera. No importa la base de datos:
- * main.ts (composition root) le pasa una función para consultar su estado.
+ * Lo que app.ts necesita recibir desde afuera. No crea controllers ni toca la
+ * base: main.ts (composition root) le pasa todo ya construido.
  */
 export interface AppDependencies {
   checkDatabase: () => Promise<boolean>;
+  routes: RouteMount[];
 }
 
 /** Arma la aplicación Express (middlewares y rutas). No abre puertos: eso lo hace main.ts. */
@@ -24,6 +31,10 @@ export function createApp(deps: AppDependencies): Express {
       database: database ? 'up' : 'down',
     });
   });
+
+  for (const { path, router } of deps.routes) {
+    app.use(path, router);
+  }
 
   app.use(notFoundHandler);
   app.use(errorHandler);

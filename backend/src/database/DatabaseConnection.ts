@@ -22,6 +22,8 @@ export class DatabaseConnection {
       port: config.db.port,
       dialect: 'postgres',
       logging: false,
+      // Columnas en snake_case en la base (role_id, created_at) y camelCase en TypeScript.
+      define: { underscored: true },
     });
   }
 
@@ -40,6 +42,14 @@ export class DatabaseConnection {
   /** Verifica que la base responda. Se llama una vez al iniciar la app. */
   async connect(): Promise<void> {
     await this.sequelize.authenticate();
+  }
+
+  /**
+   * Crea las tablas de los modelos que todavía no existen.
+   * (No hay migraciones porque sequelize-cli no está entre las librerías permitidas.)
+   */
+  async sync(): Promise<void> {
+    await this.sequelize.sync();
   }
 
   /** Consulta liviana para saber si la base sigue disponible (la usa /api/health). */
